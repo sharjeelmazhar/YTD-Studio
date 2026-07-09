@@ -31,11 +31,52 @@ function Remove-IfExists {
     }
 }
 
+function Test-IsInsidePath {
+    param(
+        [string]$ChildPath,
+        [string]$ParentPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ChildPath) -or [string]::IsNullOrWhiteSpace($ParentPath)) {
+        return $false
+    }
+
+    $child = [IO.Path]::GetFullPath($ChildPath).TrimEnd('\')
+    $parent = [IO.Path]::GetFullPath($ParentPath).TrimEnd('\')
+    return $child.Equals($parent, [StringComparison]::OrdinalIgnoreCase) -or
+        $child.StartsWith("$parent\", [StringComparison]::OrdinalIgnoreCase)
+}
+
 if (-not (Test-Administrator)) {
     Write-Host "Please run this reset from an Administrator PowerShell or Terminal." -ForegroundColor Red
     Write-Host "Example:"
     Write-Host "  powershell -ExecutionPolicy Bypass -File `"$PSCommandPath`""
     exit 1
+}
+
+$currentDir = (Get-Location).ProviderPath
+$scriptPath = $PSCommandPath
+$isRunningFromInstallDir =
+    (Test-IsInsidePath -ChildPath $currentDir -ParentPath $InstallDir) -or
+    (Test-IsInsidePath -ChildPath $scriptPath -ParentPath $InstallDir)
+
+if ($isRunningFromInstallDir) {
+    $tempScript = Join-Path $env:TEMP "Reset-YTD-Studio.ps1"
+    Copy-Item -LiteralPath $PSCommandPath -Destination $tempScript -Force
+
+    $arguments = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "`"$tempScript`""
+    )
+    if ($KeepUv) {
+        $arguments += "-KeepUv"
+    }
+
+    Write-Host "Reset was started from inside $InstallDir, so it will relaunch from TEMP first." -ForegroundColor Yellow
+    Write-Host "Continuing from: $tempScript"
+    $process = Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WorkingDirectory $env:TEMP -Wait -PassThru
+    exit $process.ExitCode
 }
 
 Write-Host "This will remove YTD Studio app files, downloads, startup task, Desktop URL shortcut, and UV unless -KeepUv is used." -ForegroundColor Yellow
