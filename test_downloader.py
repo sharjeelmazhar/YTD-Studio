@@ -7,6 +7,7 @@ from downloader import (
     clean_terminal_text,
     extract_video_id,
     find_existing_downloads,
+    format_file_size,
     format_total_downloaded_gb,
     format_bytes_per_second,
     format_eta,
@@ -65,6 +66,7 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(clean_terminal_text("\x1b[0;94m16.1%\x1b[0m"), "16.1%")
         self.assertEqual(clean_terminal_text("�[0;32m6.24MiB/s�[0m"), "6.24MiB/s")
         self.assertEqual(format_bytes_per_second(1488978), "1.42 MiB/s")
+        self.assertEqual(format_file_size(2 * 1024 * 1024 * 1024), "2.0 GiB")
         self.assertEqual(format_eta(54), "54s")
 
         progress = progress_values(
@@ -79,6 +81,8 @@ class DownloaderTests(unittest.TestCase):
         )
         self.assertEqual(progress["percent_text"], "16.1%")
         self.assertEqual(progress["speed"], "1.42 MiB/s")
+        self.assertEqual(progress["downloaded"], "161 B")
+        self.assertEqual(progress["total"], "1000 B")
         self.assertEqual(progress["eta"], "54s")
 
     def test_no_color_option_is_enabled(self) -> None:

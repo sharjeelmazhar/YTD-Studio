@@ -305,6 +305,24 @@ def format_bytes_per_second(value: object) -> str:
     return f"{speed:.2f} {units[unit_index]}"
 
 
+def format_file_size(value: object) -> str:
+    try:
+        size = float(value or 0)
+    except (TypeError, ValueError):
+        return "unknown size"
+    if size <= 0:
+        return "unknown size"
+
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    unit_index = 0
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    if unit_index == 0:
+        return f"{size:.0f} {units[unit_index]}"
+    return f"{size:.1f} {units[unit_index]}"
+
+
 def format_eta(value: object) -> str:
     try:
         seconds = int(value)
@@ -353,6 +371,8 @@ def progress_values(info: dict) -> dict:
         "percent_text": f"{percent * 100:.1f}%" if total else clean_terminal_text(info.get("_percent_str"), "0.0%"),
         "speed": format_bytes_per_second(info.get("speed")),
         "eta": format_eta(info.get("eta")),
+        "downloaded": format_file_size(downloaded),
+        "total": format_file_size(total),
         "filename": clean_terminal_text(info.get("filename")),
     }
 
