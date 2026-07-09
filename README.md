@@ -2,70 +2,86 @@
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-blue)
 ![Python](https://img.shields.io/badge/Python-managed%20by%20UV-green)
-![Streamlit](https://img.shields.io/badge/UI-Streamlit-ff4b4b)
+![UI](https://img.shields.io/badge/UI-Streamlit-ff4b4b)
 
-YTD Studio is a private Windows web app for downloading YouTube videos as MP4 or
-audio as MP3. It runs locally in your browser, saves files to your Windows
-Downloads folder, and can add compact download buttons to YouTube through a
-local Brave/Chrome extension.
+YTD Studio is a local Windows web app for downloading YouTube content as MP4
+video or MP3 audio. It runs on the user's own computer, opens in a browser, and
+saves downloads to the Windows Downloads folder.
 
-Only download videos you own, have permission to download, or are allowed to
-save.
+Only download content you own, have permission to download, or are legally
+allowed to save.
 
 ## Table Of Contents
 
 - [Features](#features)
-- [Set Up A New Computer](#set-up-a-new-computer)
-- [Install The YouTube Extension](#install-the-youtube-extension)
+- [Install On Windows](#install-on-windows)
+- [Open The App](#open-the-app)
+- [Install The Browser Extension](#install-the-browser-extension)
 - [Download Location](#download-location)
-- [Reset A Test Computer](#reset-a-test-computer)
-- [Manual Start](#manual-start)
-- [Mobile Access On Same Wi-Fi](#mobile-access-on-same-wi-fi)
+- [Mobile Access On The Same Network](#mobile-access-on-the-same-network)
+- [Reset Or Uninstall](#reset-or-uninstall)
+- [Manual Development Run](#manual-development-run)
+- [Troubleshooting](#troubleshooting)
 
 ## Features
 
-- Downloads MP4 video at `480p`, `720p`, or `1080p`
-- Downloads MP3 audio from the best available YouTube audio
-- Uses a bundled ffmpeg dependency for MP4 merging and MP3 conversion
+- Download MP4 video at `480p`, `720p`, or `1080p`
+- Download MP3 audio from the best available YouTube audio stream
+- Show download progress with percentage, speed, ETA, downloaded size, and total size
+- Save audio and video into separate folders
+- Resume partial downloads when YouTube and `yt-dlp` allow it
+- Track lifetime downloaded data locally
+- Start automatically when Windows logs in
+- Optional Brave/Chrome extension with quick YouTube page buttons
 - Uses UV for Python and dependency management
-- Saves downloads to `%USERPROFILE%\Downloads\YTD Studio Downloads`
-- Creates separate `audio` and `video` folders
-- Resumes partial downloads when YouTube allows it
-- Starts automatically when Windows logs in
-- Provides a local Brave/Chrome extension with quick YouTube buttons
-- Tracks lifetime downloaded data in `C:\YTD Studio\download-history.json`
+- Uses bundled ffmpeg from `imageio-ffmpeg`
 
-## Set Up A New Computer
+## Install On Windows
 
-> [!IMPORTANT]
-> Use this section on a fresh Windows 10 or Windows 11 computer.
+Use Windows 10 or Windows 11.
 
-1. Download this repository from GitHub as a ZIP.
-2. Extract the ZIP.
-3. Open PowerShell or Windows Terminal as Administrator in the extracted folder.
+1. Download this repository as a ZIP or clone it.
+2. Extract the project folder.
+3. Open PowerShell or Windows Terminal as Administrator in the project folder.
 4. Run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\Setup-YTD-Studio.ps1"
 ```
 
-The setup script:
+The setup script will:
 
-- installs UV if it is missing
-- copies the app to `C:\YTD Studio`
-- creates `%USERPROFILE%\Downloads\YTD Studio Downloads\video`
-- creates `%USERPROFILE%\Downloads\YTD Studio Downloads\audio`
-- runs `uv sync`
-- creates a Windows startup task named `YTD Studio`
-- starts the app immediately at `http://localhost:8501`
-- creates `YTD Studio Links.txt` on the Desktop with current phone/network URLs
+- install UV if it is missing
+- copy the app to `C:\YTD Studio`
+- create `%USERPROFILE%\Downloads\YTD Studio Downloads\video`
+- create `%USERPROFILE%\Downloads\YTD Studio Downloads\audio`
+- run `uv sync`
+- create a hidden Windows startup task named `YTD Studio`
+- start the app on `http://localhost:8501`
+- create `YTD Studio.url` and `YTD Studio Links.txt` on the Desktop
 
-The app starts automatically on future Windows logins. The browser extension is
-the only manual step.
+The app starts automatically on future Windows logins.
 
-## Install The YouTube Extension
+## Open The App
 
-After setup, load the extension manually in Brave or Chrome:
+On the Windows computer running YTD Studio, open:
+
+```text
+http://localhost:8501
+```
+
+The setup script also creates a Desktop shortcut named:
+
+```text
+YTD Studio.url
+```
+
+## Install The Browser Extension
+
+The extension is optional. It adds compact download buttons to YouTube watch
+pages.
+
+After setup:
 
 1. Open `brave://extensions` or `chrome://extensions`
 2. Turn on Developer mode
@@ -76,61 +92,115 @@ After setup, load the extension manually in Brave or Chrome:
 C:\YTD Studio\extension
 ```
 
-YouTube watch pages will show:
+The extension adds quick buttons for:
 
 ```text
-🎬 720p video
-🎵 MP3 audio
+720p video
+MP3 audio
 ```
 
-The extension uses `http://localhost:8501`, so keep the app on port `8501`.
+The extension expects the local app to be running at:
+
+```text
+http://localhost:8501
+```
 
 ## Download Location
 
-Files are saved here:
+Downloads are saved here:
 
 ```text
 %USERPROFILE%\Downloads\YTD Studio Downloads
 ```
 
-Inside:
+Inside that folder:
 
 ```text
 audio\
 video\
 ```
 
-YTD Studio also keeps a lifetime usage file here:
+The lifetime usage file is stored here:
 
 ```text
 C:\YTD Studio\download-history.json
 ```
 
-That file stores each successful download entry and total downloaded bytes. It
-does not depend on the Windows Downloads folder, so deleting downloaded files
-does not reset the app's lifetime total.
+That file records completed downloads and total downloaded bytes. Deleting the
+Windows download folder does not reset this lifetime total.
 
-## Reset A Test Computer
+## Mobile Access On The Same Network
 
-> [!WARNING]
-> This removes the installed app, downloaded files, startup task, and UV unless
-> you use `-KeepUv`.
+The startup task runs Streamlit on `0.0.0.0:8501`, so other devices on the same
+Wi-Fi or LAN can open the app from the Windows computer.
 
-To remove the app and test setup again from a clean state, run as Administrator:
+### Quick IP Command
+
+Run this in PowerShell on the Windows computer:
+
+```powershell
+$ip = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } | Select-Object -First 1 -ExpandProperty IPv4Address).IPAddress; "Open this on another device: http://$ip`:8501"
+```
+
+Example output:
+
+```text
+Open this on another device: http://192.168.1.5:8501
+```
+
+Open that URL on a phone, tablet, or laptop connected to the same Wi-Fi.
+
+You can also check manually with:
+
+```powershell
+ipconfig
+```
+
+Look for the active Wi-Fi or Ethernet adapter, then copy the `IPv4 Address`.
+For example, if the IPv4 address is `192.168.1.5`, open:
+
+```text
+http://192.168.1.5:8501
+```
+
+After setup, open this Desktop file:
+
+```text
+YTD Studio Links.txt
+```
+
+It includes:
+
+- `http://localhost:8501` for the Windows computer
+- `http://COMPUTER-NAME:8501` when the network supports computer names
+- `http://192.168.x.x:8501` style links for the current network
+
+If the computer switches Wi-Fi networks, refresh the link file:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\YTD Studio\Show-YTD-Studio-Links.ps1"
+```
+
+Downloads still save on the Windows computer, even when started from a phone or
+another laptop.
+
+## Reset Or Uninstall
+
+Run this from an Administrator PowerShell or Windows Terminal:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\Reset-YTD-Studio.ps1"
 ```
 
-This removes:
+Reset removes:
 
 - `C:\YTD Studio`
 - `%USERPROFILE%\Downloads\YTD Studio Downloads`
 - the Windows startup task
-- the Desktop app URL shortcut and network links text file
+- Desktop shortcut/link files
 - UV installed in the current user profile
 
-To keep UV:
+To keep UV installed:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\Reset-YTD-Studio.ps1" -KeepUv
@@ -139,11 +209,12 @@ powershell -ExecutionPolicy Bypass -File ".\Reset-YTD-Studio.ps1" -KeepUv
 If Brave or Chrome still shows the unpacked extension, remove it manually from
 the browser extensions page.
 
-## Manual Start
+## Manual Development Run
 
-For testing without installing:
+For local testing without installing to `C:\YTD Studio`:
 
 ```powershell
+uv sync
 uv run streamlit run app.py --server.address=localhost --server.port=8501
 ```
 
@@ -153,27 +224,31 @@ Or double-click:
 Start YouTube Downloader.bat
 ```
 
-## Mobile Access On Same Wi-Fi
+## Troubleshooting
 
-The startup task runs the app on `0.0.0.0:8501`, so phones and laptops on the
-same Wi-Fi can open it from this computer.
+If `http://localhost:8501` does not open:
 
-After setup, check this Desktop file:
+1. Open Task Scheduler and check the `YTD Studio` task.
+2. Check the log file:
 
 ```text
-YTD Studio Links.txt
+C:\YTD Studio\ytd-studio.log
 ```
 
-It contains the current URLs, including:
-
-- `http://localhost:8501` for this computer
-- `http://COMPUTER-NAME:8501` for other devices, when your network supports it
-- `http://192.168.x.x:8501` style IP links for the current Wi-Fi/Ethernet network
-
-If you switch Wi-Fi networks, refresh the file by running:
+3. Restart the task:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "C:\YTD Studio\Show-YTD-Studio-Links.ps1"
+Start-ScheduledTask -TaskName "YTD Studio"
 ```
 
-Downloads still save on the Windows computer.
+If port `8501` is already used by another app, stop that app or change the port
+inside `Setup-YTD-Studio.ps1` before installing.
+
+If downloads fail, update dependencies:
+
+```powershell
+cd "C:\YTD Studio"
+uv sync
+```
+
+Then restart the app or restart Windows.

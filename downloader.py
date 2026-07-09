@@ -247,13 +247,13 @@ def find_existing_downloads(
         return []
     mode = normalize_media_mode(media_mode) if media_mode else None
     if mode == "audio":
-        media_exts = {".mp3", ".m4a", ".opus"}
+        media_exts = {".mp3"}
         allowed_folder_names = {"audio"}
     elif mode == "video":
         media_exts = {".mp4", ".mkv", ".webm", ".mov"}
         allowed_folder_names = {"video"}
     else:
-        media_exts = {".mp4", ".mkv", ".webm", ".mov", ".mp3", ".m4a", ".opus"}
+        media_exts = {".mp4", ".mkv", ".webm", ".mov", ".mp3"}
         allowed_folder_names = {"audio", "video"}
 
     matches: list[Path] = []
@@ -487,10 +487,16 @@ def build_ydl_options(
     return options
 
 
-def newest_media_files(output_dir: Path, since: float) -> list[Path]:
+def newest_media_files(output_dir: Path, since: float, media_mode: str | None = None) -> list[Path]:
     if not output_dir.exists():
         return []
-    media_exts = {".mp4", ".mkv", ".webm", ".mov", ".mp3", ".m4a", ".opus"}
+    mode = normalize_media_mode(media_mode) if media_mode else None
+    if mode == "audio":
+        media_exts = {".mp3"}
+    elif mode == "video":
+        media_exts = {".mp4", ".mkv", ".webm", ".mov"}
+    else:
+        media_exts = {".mp4", ".mkv", ".webm", ".mov", ".mp3"}
     files = [
         path
         for path in output_dir.iterdir()
@@ -499,6 +505,22 @@ def newest_media_files(output_dir: Path, since: float) -> list[Path]:
         and path.stat().st_mtime >= since
     ]
     return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
+
+
+def cleanup_audio_source_files(output_dir: Path, video_id: str | None, since: float) -> None:
+    if not video_id or not output_dir.exists():
+        return
+    for path in output_dir.iterdir():
+        if (
+            path.is_file()
+            and path.suffix.lower() in {".m4a", ".opus", ".webm"}
+            and f"[{video_id}]" in path.name
+            and path.stat().st_mtime >= since
+        ):
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 def download_media(
@@ -558,7 +580,10 @@ def download_media(
     except KeyboardInterrupt:
         return DownloadResult(False, "Download cancelled.", details="KeyboardInterrupt")
 
-    files = newest_media_files(target_dir, started_at)
+    if mode == "audio":
+        cleanup_audio_source_files(target_dir, video_id, started_at)
+
+    files = newest_media_files(target_dir, started_at, mode)
     if files:
         record_download_history(files, cleaned_url, mode, quality)
         return DownloadResult(True, "Download complete.", files=files)

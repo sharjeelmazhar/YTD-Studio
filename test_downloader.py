@@ -5,6 +5,7 @@ import unittest
 from downloader import (
     build_ydl_options,
     clean_terminal_text,
+    cleanup_audio_source_files,
     extract_video_id,
     find_existing_downloads,
     format_file_size,
@@ -14,6 +15,7 @@ from downloader import (
     is_network_error,
     looks_like_youtube_url,
     normalize_quality,
+    newest_media_files,
     output_dir_for_mode,
     progress_values,
     read_download_history,
@@ -104,6 +106,21 @@ class DownloaderTests(unittest.TestCase):
             self.assertEqual(set(find_existing_downloads("BaW_jenozKc", folder)), {matching, audio})
             self.assertEqual(find_existing_downloads("BaW_jenozKc", folder, media_mode="video"), [matching])
             self.assertEqual(find_existing_downloads("BaW_jenozKc", folder, media_mode="audio"), [audio])
+
+    def test_audio_mode_ignores_and_cleans_source_audio(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            folder = Path(temp_dir)
+            mp3 = folder / "Video title [BaW_jenozKc].mp3"
+            m4a = folder / "Video title [BaW_jenozKc].m4a"
+            mp3.write_bytes(b"mp3")
+            m4a.write_bytes(b"source")
+
+            self.assertEqual(find_existing_downloads("BaW_jenozKc", folder, media_mode="audio"), [mp3])
+            self.assertEqual(newest_media_files(folder, 0, "audio"), [mp3])
+
+            cleanup_audio_source_files(folder, "BaW_jenozKc", 0)
+            self.assertTrue(mp3.exists())
+            self.assertFalse(m4a.exists())
 
     def test_records_download_history(self) -> None:
         with TemporaryDirectory() as temp_dir:

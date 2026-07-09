@@ -1,14 +1,8 @@
 from __future__ import annotations
 
-import threading
-import time
-import uuid
-from dataclasses import dataclass, field
 from html import escape
-from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from downloader import (
     AUDIO_DIR,
@@ -26,34 +20,6 @@ from downloader import (
 
 QUALITY_CHOICES = ["480p", "720p", "1080p"]
 MEDIA_CHOICES = ["Video MP4", "Audio MP3"]
-JOB_RETRY_LIMIT = 3
-
-
-@dataclass
-class DownloadJob:
-    id: str
-    url: str
-    quality: str
-    media_mode: str
-    allow_redownload: bool
-    label: str
-    status: str = "queued"
-    percent: float = 0.0
-    speed: str = "waiting"
-    eta: str = "calculating"
-    downloaded: str = "unknown size"
-    total: str = "unknown size"
-    message: str = "Waiting to start"
-    details: str = ""
-    files: list[Path] = field(default_factory=list)
-    attempts: int = 0
-    created_at: float = field(default_factory=time.time)
-    updated_at: float = field(default_factory=time.time)
-
-
-JOBS: dict[str, DownloadJob] = {}
-ACTIVE_JOB_ID: str | None = None
-JOBS_LOCK = threading.RLock()
 
 st.set_page_config(
     page_title="YouTube Downloader",
@@ -778,199 +744,6 @@ def inject_styles(theme: str) -> None:
     )
 
 
-def active_job() -> DownloadJob | None:
-    with JOBS_LOCK:
-        if ACTIVE_JOB_ID:
-            return JOBS.get(ACTIVE_JOB_ID)
-        return None
-
-
-def job_snapshot(job_id: str | None) -> DownloadJob | None:
-    if not job_id:
-        return None
-    with JOBS_LOCK:
-        return JOBS.get(job_id)
-
-
-def set_active_job(job_id: str | None) -> None:
-    global ACTIVE_JOB_ID
-    with JOBS_LOCK:
-        ACTIVE_JOB_ID = job_id
-
-
-def update_job(job_id: str, **changes: object) -> None:
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-        if not job:
-            return
-        for key, value in changes.items():
-            setattr(job, key, value)
-        job.updated_at = time.time()
-
-
-def clear_active_if_finished(job_id: str) -> None:
-    global ACTIVE_JOB_ID
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-        if job and job.status in {"complete", "error"} and ACTIVE_JOB_ID == job_id:
-            ACTIVE_JOB_ID = None
-
-
-def find_matching_running_job(url: str, media_mode: str, quality: str) -> DownloadJob | None:
-    cleaned_url = url.strip()
-    with JOBS_LOCK:
-        for job in JOBS.values():
-            if (
-                job.status in {"queued", "starting", "downloading", "finishing"}
-                and job.url == cleaned_url
-                and job.media_mode == media_mode
-                and job.quality == quality
-            ):
-                return job
-    return None
-
-
-def run_download_job(job_id: str) -> None:
-    with JOBS_LOCK:
-        job = JOBS[job_id]
-        url = job.url
-        quality = job.quality
-        media_mode = job.media_mode
-        allow_redownload = job.allow_redownload
-
-    last_result = None
-    for attempt in range(1, JOB_RETRY_LIMIT + 1):
-        update_job(
-            job_id,
-            status="starting",
-            attempts=attempt,
-            message=f"Starting download, attempt {attempt} of {JOB_RETRY_LIMIT}",
-        )
-
-        def update_progress(info: dict) -> None:
-            if info["status"] == "downloading":
-                update_job(
-                    job_id,
-                    status="downloading",
-                    percent=info["percent"],
-                    speed=info.get("speed") or "slow connection, still working",
-                    eta=info.get("eta") or "unknown",
-                    downloaded=info.get("downloaded") or "unknown size",
-                    total=info.get("total") or "unknown size",
-                    message="Downloading",
-                )
-            elif info["status"] == "finished":
-                update_job(
-                    job_id,
-                    status="finishing",
-                    percent=1.0,
-                    speed="Merging",
-                    eta="almost done",
-                    message="Download finished, processing file",
-                )
-
-        result = download_media(
-            url,
-            workers=detected_workers(),
-            quality=quality,
-            media_mode=media_mode,
-            progress_callback=update_progress,
-            allow_redownload=allow_redownload,
-        )
-        last_result = result
-        if result.ok:
-            update_job(
-                job_id,
-                status="complete",
-                percent=1.0,
-                speed="done",
-                eta="done",
-                message=result.message,
-                files=result.files,
-                details=result.details,
-            )
-            clear_active_if_finished(job_id)
-            return
-
-        retryable_text = f"{result.message}\n{result.details}".lower()
-        retryable = any(
-            word in retryable_text
-            for word in (
-                "forbidden",
-                "http error 403",
-                "http error 429",
-                "timed out",
-                "timeout",
-                "connection",
-                "unable to download",
-                "temporary",
-            )
-        )
-        if attempt < JOB_RETRY_LIMIT and retryable:
-            update_job(
-                job_id,
-                status="starting",
-                message=f"{result.message} Retrying automatically...",
-                details=result.details,
-            )
-            time.sleep(2 * attempt)
-            continue
-        break
-
-    error_message = last_result.message if last_result else "The download failed."
-    error_details = last_result.details if last_result else ""
-    update_job(
-        job_id,
-        status="error",
-        message=f"{error_message} Tried {JOB_RETRY_LIMIT} times.",
-        details=error_details,
-    )
-    clear_active_if_finished(job_id)
-
-
-def start_download_job(
-    url: str,
-    quality: str,
-    media_mode: str,
-    label: str,
-    allow_redownload: bool,
-) -> DownloadJob:
-    existing_job = find_matching_running_job(url, media_mode, quality)
-    if existing_job:
-        return existing_job
-
-    job_id = uuid.uuid4().hex
-    job = DownloadJob(
-        id=job_id,
-        url=url.strip(),
-        quality=quality,
-        media_mode=media_mode,
-        allow_redownload=allow_redownload,
-        label=label,
-    )
-    with JOBS_LOCK:
-        JOBS[job_id] = job
-    set_active_job(job_id)
-    thread = threading.Thread(target=run_download_job, args=(job_id,), daemon=True)
-    thread.start()
-    return job
-
-
-def auto_refresh_while_running(job: DownloadJob | None) -> None:
-    if job and job.status in {"queued", "starting", "downloading", "finishing"}:
-        components.html(
-            """
-            <script>
-            setTimeout(function () {
-                window.parent.location.reload();
-            }, 1500);
-            </script>
-            """,
-            height=0,
-            width=0,
-        )
-
-
 def progress_markup(
     percent: float,
     status: str,
@@ -1046,7 +819,7 @@ def recent_files() -> list:
         if not folder.exists():
             continue
         for path in folder.iterdir():
-            if path.is_file() and path.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov", ".mp3", ".m4a", ".opus"}:
+            if path.is_file() and path.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov", ".mp3"}:
                 key = str(path.resolve()).lower()
                 if key not in seen:
                     seen.add(key)
@@ -1097,69 +870,6 @@ def render_bottom_sections(target) -> None:
         st.caption(
             "Only download videos you own, have permission to download, or are allowed to save."
         )
-
-
-def render_job_status(
-    job: DownloadJob | None,
-    progress_placeholder,
-    result_placeholder,
-    detail,
-    bottom_placeholder,
-) -> None:
-    if not job:
-        return
-
-    if job.status in {"queued", "starting"}:
-        progress_placeholder.markdown(
-            progress_markup(
-                job.percent,
-                job.message,
-                "Checking connection",
-                "calculating",
-                job.downloaded,
-                job.total,
-            ),
-            unsafe_allow_html=True,
-        )
-    elif job.status in {"downloading", "finishing"}:
-        progress_placeholder.markdown(
-            progress_markup(
-                job.percent,
-                job.message,
-                job.speed,
-                job.eta,
-                job.downloaded,
-                job.total,
-            ),
-            unsafe_allow_html=True,
-        )
-    elif job.status == "complete":
-        progress_placeholder.markdown(
-            progress_markup(
-                1.0,
-                "Complete",
-                job.label,
-                "done",
-                job.total if job.total != "unknown size" else job.downloaded,
-                job.total,
-            ),
-            unsafe_allow_html=True,
-        )
-        saved_files = "<br>".join(escape(str(file)) for file in job.files)
-        result_placeholder.markdown(
-            f'<div class="success-card">Download complete.<br>{saved_files}</div>',
-            unsafe_allow_html=True,
-        )
-        bottom_placeholder.empty()
-        render_bottom_sections(bottom_placeholder)
-    elif job.status == "error":
-        progress_placeholder.empty()
-        result_placeholder.markdown(
-            f'<div class="error-card">{escape(job.message)}</div>',
-            unsafe_allow_html=True,
-        )
-        if job.details:
-            detail.code(job.details)
 
 
 def main() -> None:
@@ -1252,10 +962,6 @@ def main() -> None:
     detail = st.empty()
     bottom_placeholder = st.empty()
     render_bottom_sections(bottom_placeholder)
-    current_job_id = st.session_state.get("current_job_id")
-    current_job = job_snapshot(current_job_id) or active_job()
-    if current_job:
-        st.session_state.current_job_id = current_job.id
 
     should_auto_download = (
         query_auto
@@ -1285,27 +991,76 @@ def main() -> None:
             if should_auto_download:
                 st.query_params.clear()
         else:
-            job = start_download_job(
+            progress_placeholder.markdown(
+                progress_markup(
+                    0,
+                    "Preparing download",
+                    "Checking connection",
+                    "calculating",
+                ),
+                unsafe_allow_html=True,
+            )
+
+            def update_progress(info: dict) -> None:
+                if info["status"] == "downloading":
+                    percent = info["percent"]
+                    speed = info["speed"] or "slow connection, still working"
+                    eta = info["eta"] or "unknown"
+                    downloaded = info.get("downloaded") or "unknown size"
+                    total = info.get("total") or "unknown size"
+                    progress_placeholder.markdown(
+                        progress_markup(
+                            percent,
+                            "Downloading",
+                            speed,
+                            eta,
+                            downloaded,
+                            total,
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                elif info["status"] == "finished":
+                    progress_placeholder.markdown(
+                        progress_markup(
+                            1.0,
+                            "Download finished",
+                            "Merging MP4",
+                            "almost done",
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+            result = download_media(
                 url,
+                workers=detected_workers(),
                 quality=selected_quality,
                 media_mode=media_mode,
-                label=selected_media,
+                progress_callback=update_progress,
                 allow_redownload=allow_redownload,
             )
-            st.session_state.current_job_id = job.id
-            current_job = job
+
+            if result.ok:
+                progress_placeholder.markdown(
+                    progress_markup(1.0, "Complete", selected_media, "done"),
+                    unsafe_allow_html=True,
+                )
+                saved_files = "<br>".join(escape(str(file)) for file in result.files)
+                result_placeholder.markdown(
+                    f'<div class="success-card">Download complete.<br>{saved_files}</div>',
+                    unsafe_allow_html=True,
+                )
+                bottom_placeholder.empty()
+                render_bottom_sections(bottom_placeholder)
+            else:
+                progress_placeholder.empty()
+                result_placeholder.markdown(
+                    f'<div class="error-card">{escape(result.message)}</div>',
+                    unsafe_allow_html=True,
+                )
+                if result.details:
+                    detail.code(result.details)
             if should_auto_download:
                 st.query_params.clear()
-
-    current_job = job_snapshot(st.session_state.get("current_job_id")) or active_job()
-    render_job_status(
-        current_job,
-        progress_placeholder,
-        result_placeholder,
-        detail,
-        bottom_placeholder,
-    )
-    auto_refresh_while_running(current_job)
 
 
 if __name__ == "__main__":
