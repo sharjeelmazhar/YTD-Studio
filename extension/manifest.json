@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "YTD Studio Button",
+  "version": "0.1.0",
+  "description": "Adds a local Download 720p button to YouTube pages.",
+  "permissions": [],
+  "host_permissions": [
+    "http://localhost:8501/*",
+    "http://127.0.0.1:8501/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/watch*",
+        "https://youtube.com/watch*"
+      ],
+      "js": [
+        "youtube-button.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
