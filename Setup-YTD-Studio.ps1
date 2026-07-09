@@ -102,6 +102,7 @@ finally {
 
 Write-Step "Writing startup launcher"
 $LauncherPath = Join-Path $InstallDir "Start-YTD-Studio.ps1"
+$HiddenLauncherPath = Join-Path $InstallDir "Start-YTD-Studio-Hidden.vbs"
 $LinksPath = Join-Path $InstallDir "Show-YTD-Studio-Links.ps1"
 $LogPath = Join-Path $InstallDir "ytd-studio.log"
 $LinksScript = @"
@@ -169,23 +170,47 @@ $Launcher = @"
 `$UvExe = "$UvPath"
 `$Port = $Port
 `$Url = "http://localhost:`$Port"
-Set-Location `$AppDir
+`$LogPath = "$LogPath"
 
-& "$LinksPath" *> `$null
-
-`$listener = Get-NetTCPConnection -LocalPort `$Port -State Listen -ErrorAction SilentlyContinue
-if (`$listener) {
-    exit 0
+function Write-Log {
+    param([string]`$Message)
+    `$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "`$timestamp  `$Message" | Add-Content -Path `$LogPath -Encoding UTF8
 }
 
-& `$UvExe run streamlit run app.py --server.headless=true --server.address=0.0.0.0 --server.port=`$Port *> "$LogPath"
+try {
+    Set-Location `$AppDir
+
+    & "$LinksPath" *> `$null
+
+    `$listener = Get-NetTCPConnection -LocalPort `$Port -State Listen -ErrorAction SilentlyContinue
+    if (`$listener) {
+        Write-Log "Port `$Port is already listening. Startup skipped."
+        exit 0
+    }
+
+    Write-Log "Starting YTD Studio on http://localhost:`$Port"
+    `$env:PATH = "`$env:USERPROFILE\.local\bin;`$env:USERPROFILE\.cargo\bin;`$env:PATH"
+    & `$UvExe run streamlit run app.py --server.headless=true --server.address=0.0.0.0 --server.port=`$Port --browser.gatherUsageStats=false --server.fileWatcherType=none *>> `$LogPath
+}
+catch {
+    Write-Log "Startup failed: `$(`$_.Exception.Message)"
+    Write-Log "Full error: `$(`$_ | Out-String)"
+    exit 1
+}
 "@
 Set-Content -Path $LauncherPath -Value $Launcher -Encoding UTF8
 
+$HiddenLauncher = @"
+Set shell = CreateObject("WScript.Shell")
+shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""$LauncherPath""", 0, False
+"@
+Set-Content -Path $HiddenLauncherPath -Value $HiddenLauncher -Encoding ASCII
+
 Write-Step "Registering Windows startup task"
 $Action = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$LauncherPath`""
+    -Execute "wscript.exe" `
+    -Argument "`"$HiddenLauncherPath`""
 $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $Settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
